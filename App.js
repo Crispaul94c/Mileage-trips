@@ -14,88 +14,154 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
-const STORAGE_KEY = 'mileage_trip_history_v2';
+const STORAGE_KEY = 'mileage_trip_history_v3';
 
-const newTrip = () => ({
+const today = () => {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const year = d.getFullYear();
+
+  return `${month}/${day}/${year}`;
+};
+
+const emptyTrip = () => ({
   id: Date.now().toString(),
   createdAt: new Date().toISOString(),
+
   driver: '',
   truck: '',
-  entries: [
+
+  mileageEntries: [
     {
-      id: Date.now().toString() + '-1',
+      id: `${Date.now()}-m1`,
+      date: today(),
       state: '',
       highway: '',
       odometer: '',
     },
   ],
-  gallons: '',
-  fuelCost: '',
+
+  routes: [
+    {
+      id: `${Date.now()}-r1`,
+      from: '',
+      to: '',
+    },
+  ],
+
+  fuelEntries: [
+    {
+      id: `${Date.now()}-f1`,
+      date: today(),
+      vendor: '',
+      gallons: '',
+      cost: '',
+    },
+  ],
 });
 
 export default function App() {
+  const [screen, setScreen] = useState('home');
   const [trips, setTrips] = useState([]);
-  const [screen, setScreen] = useState('history');
-  const [trip, setTrip] = useState(newTrip());
-  const [loaded, setLoaded] = useState(false);
+  const [trip, setTrip] = useState(emptyTrip());
+  const [editingId, setEditingId] = useState(null);
+  const [viewTrip, setViewTrip] = useState(null);
 
   useEffect(() => {
     loadTrips();
   }, []);
 
-  useEffect(() => {
-    if (loaded) saveTripsToStorage(trips);
-  }, [trips, loaded]);
-
   const loadTrips = async () => {
     try {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      if (saved) setTrips(JSON.parse(saved));
+
+      if (saved) {
+        setTrips(JSON.parse(saved));
+      }
     } catch (error) {
-      console.log(error);
-    } finally {
-      setLoaded(true);
+      Alert.alert(
+        'Error',
+        'Could not load saved trips.'
+      );
     }
   };
 
-  const saveTripsToStorage = async data => {
+  const saveTripsToPhone = async (newTrips) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(newTrips)
+      );
+
+      setTrips(newTrips);
     } catch (error) {
-      console.log(error);
+      Alert.alert(
+        'Error',
+        'Could not save trip.'
+      );
     }
   };
 
   const startNewTrip = () => {
-    setTrip(newTrip());
-    setScreen('edit');
+    setTrip(emptyTrip());
+    setEditingId(null);
+    setScreen('editor');
   };
 
-  const openTrip = savedTrip => {
-    setTrip(JSON.parse(JSON.stringify(savedTrip)));
-    setScreen('edit');
+  const editTrip = (savedTrip) => {
+    setTrip(
+      JSON.parse(
+        JSON.stringify(savedTrip)
+      )
+    );
+
+    setEditingId(savedTrip.id);
+    setScreen('editor');
   };
 
-  const updateEntry = (index, field, value) => {
-    const copy = [...trip.entries];
-    copy[index] = {
-      ...copy[index],
+  const openTripSheet = (savedTrip) => {
+    setViewTrip(savedTrip);
+    setScreen('sheet');
+  };
+
+  const updateBasic = (field, value) => {
+    setTrip({
+      ...trip,
+      [field]: value,
+    });
+  };
+
+  const updateMileage = (
+    index,
+    field,
+    value
+  ) => {
+    const updated = [
+      ...trip.mileageEntries,
+    ];
+
+    updated[index] = {
+      ...updated[index],
       [field]: value,
     };
 
     setTrip({
       ...trip,
-      entries: copy,
+      mileageEntries: updated,
     });
   };
 
-  const addEntry = () => {
+  const addMileage = () => {
     setTrip({
       ...trip,
-      entries: [
-        ...trip.entries,
+
+      mileageEntries: [
+        ...trip.mileageEntries,
+
         {
-          id: Date.now().toString(),
+          id: `${Date.now()}-m`,
+          date: today(),
           state: '',
           highway: '',
           odometer: '',
@@ -104,622 +170,2483 @@ export default function App() {
     });
   };
 
-  const removeEntry = index => {
-    if (trip.entries.length === 1) {
-      Alert.alert('Mileage Entry', 'You must keep at least one entry.');
+  const removeMileage = (index) => {
+    if (
+      trip.mileageEntries.length === 1
+    ) {
       return;
     }
 
-    const copy = trip.entries.filter((_, i) => i !== index);
-
     setTrip({
       ...trip,
-      entries: copy,
+
+      mileageEntries:
+        trip.mileageEntries.filter(
+          (_, i) => i !== index
+        ),
     });
   };
 
-  const getTotalMiles = currentTrip => {
-    const readings = currentTrip.entries
-      .map(entry => parseFloat(entry.odometer))
-      .filter(number => !isNaN(number));
+  const updateRoute = (
+    index,
+    field,
+    value
+  ) => {
+    const updated = [
+      ...trip.routes,
+    ];
 
-    if (readings.length < 2) return 0;
+    updated[index] = {
+      ...updated[index],
+      [field]: value,
+    };
 
-    return Math.max(...readings) - Math.min(...readings);
+    setTrip({
+      ...trip,
+      routes: updated,
+    });
   };
 
-  const getMPG = currentTrip => {
-    const miles = getTotalMiles(currentTrip);
-    const gallons = parseFloat(currentTrip.gallons);
+  const addRoute = () => {
+    setTrip({
+      ...trip,
 
-    if (!gallons || gallons <= 0) return 0;
+      routes: [
+        ...trip.routes,
+
+        {
+          id: `${Date.now()}-r`,
+          from: '',
+          to: '',
+        },
+      ],
+    });
+  };
+
+  const removeRoute = (index) => {
+    if (trip.routes.length === 1) {
+      return;
+    }
+
+    setTrip({
+      ...trip,
+
+      routes: trip.routes.filter(
+        (_, i) => i !== index
+      ),
+    });
+  };
+
+  const updateFuel = (
+    index,
+    field,
+    value
+  ) => {
+    const updated = [
+      ...trip.fuelEntries,
+    ];
+
+    updated[index] = {
+      ...updated[index],
+      [field]: value,
+    };
+
+    setTrip({
+      ...trip,
+      fuelEntries: updated,
+    });
+  };
+
+  const addFuel = () => {
+    setTrip({
+      ...trip,
+
+      fuelEntries: [
+        ...trip.fuelEntries,
+
+        {
+          id: `${Date.now()}-f`,
+          date: today(),
+          vendor: '',
+          gallons: '',
+          cost: '',
+        },
+      ],
+    });
+  };
+
+  const removeFuel = (index) => {
+    if (
+      trip.fuelEntries.length === 1
+    ) {
+      return;
+    }
+
+    setTrip({
+      ...trip,
+
+      fuelEntries:
+        trip.fuelEntries.filter(
+          (_, i) => i !== index
+        ),
+    });
+  };
+
+  const calculateMiles = (
+    selectedTrip = trip
+  ) => {
+    const readings =
+      selectedTrip.mileageEntries
+        .map((item) =>
+          Number(item.odometer)
+        )
+        .filter(
+          (value) =>
+            !isNaN(value) &&
+            value > 0
+        );
+
+    if (readings.length < 2) {
+      return 0;
+    }
+
+    return (
+      Math.max(...readings) -
+      Math.min(...readings)
+    );
+  };
+
+  const calculateFuelCost = (
+    selectedTrip = trip
+  ) => {
+    return selectedTrip.fuelEntries.reduce(
+      (total, item) => {
+        const cost = Number(item.cost);
+
+        return (
+          total +
+          (isNaN(cost) ? 0 : cost)
+        );
+      },
+      0
+    );
+  };
+
+  const calculateGallons = (
+    selectedTrip = trip
+  ) => {
+    return selectedTrip.fuelEntries.reduce(
+      (total, item) => {
+        const gallons =
+          Number(item.gallons);
+
+        return (
+          total +
+          (
+            isNaN(gallons)
+              ? 0
+              : gallons
+          )
+        );
+      },
+      0
+    );
+  };
+
+  const calculateMPG = (
+    selectedTrip = trip
+  ) => {
+    const miles =
+      calculateMiles(selectedTrip);
+
+    const gallons =
+      calculateGallons(selectedTrip);
+
+    if (gallons <= 0) {
+      return 0;
+    }
 
     return miles / gallons;
   };
 
-  const saveTrip = () => {
+  const saveTrip = async () => {
     if (!trip.driver.trim()) {
-      Alert.alert('Missing Information', 'Enter the driver name.');
+      Alert.alert(
+        'Missing Driver',
+        'Please enter the driver name.'
+      );
+
       return;
     }
 
-    if (!trip.truck.trim()) {
-      Alert.alert('Missing Information', 'Enter the truck / trailer number.');
-      return;
-    }
+    let newTrips;
 
-    const exists = trips.some(item => item.id === trip.id);
-
-    let updated;
-
-    if (exists) {
-      updated = trips.map(item =>
-        item.id === trip.id ? trip : item
+    if (editingId) {
+      newTrips = trips.map((item) =>
+        item.id === editingId
+          ? {
+              ...trip,
+              updatedAt:
+                new Date().toISOString(),
+            }
+          : item
       );
     } else {
-      updated = [trip, ...trips];
+      const finishedTrip = {
+        ...trip,
+
+        id:
+          Date.now().toString(),
+
+        createdAt:
+          new Date().toISOString(),
+      };
+
+      newTrips = [
+        finishedTrip,
+        ...trips,
+      ];
     }
 
-    setTrips(updated);
-    setScreen('history');
+    await saveTripsToPhone(newTrips);
+
+    Alert.alert(
+      'Trip Saved',
+      'The trip was saved on this device.'
+    );
+
+    setScreen('home');
   };
 
-  const deleteTrip = id => {
+  const deleteTrip = (id) => {
     Alert.alert(
       'Delete Trip',
       'Are you sure you want to delete this trip?',
       [
-        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setTrips(trips.filter(item => item.id !== id));
+
+          onPress: async () => {
+            const newTrips =
+              trips.filter(
+                (item) =>
+                  item.id !== id
+              );
+
+            await saveTripsToPhone(
+              newTrips
+            );
           },
         },
       ]
     );
   };
 
-  const createHTML = currentTrip => {
-    const miles = getTotalMiles(currentTrip);
-    const mpg = getMPG(currentTrip);
+  const escapeHtml = (
+    value = ''
+  ) => {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
 
-    const rows = currentTrip.entries
-      .map(
-        (entry, index) => `
-          <tr>
-            <td>${index + 1}</td>
-            <td>${entry.state || ''}</td>
-            <td>${entry.highway || ''}</td>
-            <td>${entry.odometer || ''}</td>
-          </tr>
-        `
-      )
-      .join('');
+  const createTripHTML = (
+    selectedTrip
+  ) => {
+    const mileageRows =
+      selectedTrip.mileageEntries
+        .map(
+          (entry) => `
+            <tr>
+              <td>${escapeHtml(
+                entry.date
+              )}</td>
+
+              <td>${escapeHtml(
+                entry.state
+              )}</td>
+
+              <td>${escapeHtml(
+                entry.highway
+              )}</td>
+
+              <td>${escapeHtml(
+                entry.odometer
+              )}</td>
+            </tr>
+          `
+        )
+        .join('');
+
+    const routeRows =
+      selectedTrip.routes
+        .map(
+          (route) => `
+            <div class="route-row">
+
+              <div>
+                <b>FROM:</b>
+                ${escapeHtml(
+                  route.from
+                )}
+              </div>
+
+              <div>
+                <b>TO:</b>
+                ${escapeHtml(
+                  route.to
+                )}
+              </div>
+
+            </div>
+          `
+        )
+        .join('');
+
+    const fuelRows =
+      selectedTrip.fuelEntries
+        .map(
+          (fuel) => `
+            <tr>
+
+              <td>
+                ${escapeHtml(
+                  fuel.date
+                )}
+              </td>
+
+              <td>
+                ${escapeHtml(
+                  fuel.vendor
+                )}
+              </td>
+
+              <td>
+                ${escapeHtml(
+                  fuel.gallons
+                )}
+              </td>
+
+              <td>
+                ${
+                  fuel.cost
+                    ? '$' +
+                      Number(
+                        fuel.cost
+                      ).toFixed(2)
+                    : ''
+                }
+              </td>
+
+            </tr>
+          `
+        )
+        .join('');
 
     return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 30px;
-              color: #111827;
-            }
+<!DOCTYPE html>
 
-            h1 {
-              text-align: center;
-              margin-bottom: 5px;
-            }
+<html>
 
-            .subtitle {
-              text-align: center;
-              color: #6b7280;
-              margin-bottom: 30px;
-            }
+<head>
 
-            .info {
-              margin-bottom: 25px;
-              font-size: 16px;
-              line-height: 1.7;
-            }
+<meta charset="utf-8" />
 
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 15px;
-            }
+<style>
 
-            th, td {
-              border: 1px solid #999;
-              padding: 10px;
-              text-align: left;
-            }
+@page {
+  size: letter;
+  margin: 0.35in;
+}
 
-            th {
-              background: #f1f5f9;
-            }
+* {
+  box-sizing: border-box;
+}
 
-            .summary {
-              margin-top: 25px;
-              padding: 15px;
-              border: 1px solid #ddd;
-              border-radius: 8px;
-            }
-          </style>
-        </head>
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #111;
+  margin: 0;
+  font-size: 11px;
+}
 
-        <body>
-          <h1>Mileage Trip Sheet</h1>
-          <div class="subtitle">Digital Trip Record</div>
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
 
-          <div class="info">
-            <strong>Driver:</strong> ${currentTrip.driver}<br>
-            <strong>Truck / Trailer #:</strong> ${currentTrip.truck}<br>
-            <strong>Date:</strong>
-            ${new Date(currentTrip.createdAt).toLocaleDateString()}
-          </div>
+.company {
+  width: 48%;
+  line-height: 1.35;
+}
 
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>State</th>
-                <th>Highway Used</th>
-                <th>Odometer</th>
-              </tr>
-            </thead>
+.company-name {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 3px;
+}
 
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
+.title-box {
+  width: 34%;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.05;
+}
 
-          <div class="summary">
-            <strong>Total Miles:</strong> ${miles.toFixed(0)}<br>
-            <strong>Gallons:</strong> ${
-              parseFloat(currentTrip.gallons || 0).toFixed(2)
-            }<br>
-            <strong>Fuel Cost:</strong> $${
-              parseFloat(currentTrip.fuelCost || 0).toFixed(2)
-            }<br>
-            <strong>MPG:</strong> ${mpg.toFixed(2)}
-          </div>
-        </body>
-      </html>
+.driver-row {
+  display: flex;
+  gap: 18px;
+  margin: 14px 0 10px;
+}
+
+.line-field {
+  flex: 1;
+  border-bottom: 1px solid #111;
+  padding-bottom: 3px;
+}
+
+.label {
+  font-weight: 800;
+  margin-right: 6px;
+}
+
+.section-title {
+  font-weight: 900;
+  margin-top: 14px;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border: 1px solid #111;
+  padding: 5px 6px;
+  text-align: left;
+  height: 24px;
+}
+
+th {
+  font-weight: 900;
+  background: #f1f1f1;
+}
+
+.route-row {
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid #111;
+  padding: 5px 0;
+}
+
+.route-row > div {
+  flex: 1;
+}
+
+.summary {
+  margin-top: 12px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-weight: 700;
+}
+
+.summary span {
+  border: 1px solid #bbb;
+  padding: 6px 8px;
+  border-radius: 5px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="header">
+
+  <div class="company">
+
+    <div class="company-name">
+      MARKKO'S Transportation
+    </div>
+
+    <div>
+      8224 Guava Avenue
+    </div>
+
+    <div>
+      Buena Park, CA 90620
+    </div>
+
+    <div>
+      (714) 404-5148
+      &nbsp;
+      Fax (657) 214-2149
+    </div>
+
+  </div>
+
+  <div class="title-box">
+    MILEAGE
+    <br />
+    TRIP
+    <br />
+    SHEET
+  </div>
+
+</div>
+
+<div class="driver-row">
+
+  <div class="line-field">
+
+    <span class="label">
+      DRIVER
+    </span>
+
+    ${escapeHtml(
+      selectedTrip.driver
+    )}
+
+  </div>
+
+  <div class="line-field">
+
+    <span class="label">
+      TRUCK/TRAILER #
+    </span>
+
+    ${escapeHtml(
+      selectedTrip.truck
+    )}
+
+  </div>
+
+</div>
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>
+DATE
+</th>
+
+<th>
+STATE
+</th>
+
+<th>
+HWY USED
+</th>
+
+<th>
+ODOMETER READING
+</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+${mileageRows}
+
+</tbody>
+
+</table>
+
+<div class="section-title">
+CITIES:
+</div>
+
+${routeRows}
+
+<div class="section-title">
+FUEL PURCHASE:
+</div>
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>
+DATE
+</th>
+
+<th>
+VENDOR
+</th>
+
+<th>
+GALLONS
+</th>
+
+<th>
+COST
+</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+${fuelRows}
+
+</tbody>
+
+</table>
+
+<div class="summary">
+
+<span>
+Total Miles:
+${calculateMiles(
+  selectedTrip
+)}
+</span>
+
+<span>
+Total Gallons:
+${calculateGallons(
+  selectedTrip
+).toFixed(2)}
+</span>
+
+<span>
+Total Fuel:
+$${calculateFuelCost(
+  selectedTrip
+).toFixed(2)}
+</span>
+
+<span>
+MPG:
+${calculateMPG(
+  selectedTrip
+).toFixed(2)}
+</span>
+
+</div>
+
+</body>
+
+</html>
     `;
   };
 
-  const printTrip = async currentTrip => {
+  const sharePDF = async (
+    selectedTrip
+  ) => {
     try {
-      await Print.printAsync({
-        html: createHTML(currentTrip),
-      });
-    } catch (error) {
-      Alert.alert('Print Error', error.message);
-    }
-  };
+      const { uri } =
+        await Print.printToFileAsync({
+          html:
+            createTripHTML(
+              selectedTrip
+            ),
+        });
 
-  const sharePDF = async currentTrip => {
-    try {
-      const { uri } = await Print.printToFileAsync({
-        html: createHTML(currentTrip),
-      });
+      const canShare =
+        await Sharing.isAvailableAsync();
 
-      const available = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert(
+          'PDF Created',
+          uri
+        );
 
-      if (!available) {
-        Alert.alert('PDF Created', uri);
         return;
       }
 
-      await Sharing.shareAsync(uri, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Mileage Trip Sheet',
-        UTI: 'com.adobe.pdf',
-      });
+      await Sharing.shareAsync(
+        uri,
+        {
+          mimeType:
+            'application/pdf',
+
+          UTI:
+            'com.adobe.pdf',
+
+          dialogTitle:
+            'Mileage Trip Sheet',
+        }
+      );
     } catch (error) {
-      Alert.alert('PDF Error', error.message);
+      Alert.alert(
+        'PDF Error',
+        error.message
+      );
     }
   };
 
-  if (screen === 'history') {
+  const printTrip = async (
+    selectedTrip
+  ) => {
+    try {
+      await Print.printAsync({
+        html:
+          createTripHTML(
+            selectedTrip
+          ),
+      });
+    } catch (error) {
+      Alert.alert(
+        'Print Error',
+        error.message
+      );
+    }
+  };
+
+  if (screen === 'home') {
     return (
-      <SafeAreaView style={styles.safe}>
-        <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.title}>Mileage Trips</Text>
-          <Text style={styles.subtitle}>Digital Trip Sheets</Text>
+      <SafeAreaView
+        style={styles.container}
+      >
+
+        <ScrollView
+          contentContainerStyle={
+            styles.content
+          }
+        >
+
+          <Text
+            style={styles.title}
+          >
+            Mileage Trips
+          </Text>
+
+          <Text
+            style={styles.subtitle}
+          >
+            Digital Trip Sheets
+          </Text>
 
           <TouchableOpacity
-            style={styles.mainButton}
+            style={
+              styles.primaryButton
+            }
             onPress={startNewTrip}
           >
-            <Text style={styles.mainButtonText}>+ New Trip</Text>
+
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
+              + New Trip
+            </Text>
+
           </TouchableOpacity>
 
-          <Text style={styles.sectionTitle}>Trip History</Text>
+          <Text
+            style={
+              styles.historyTitle
+            }
+          >
+            Trip History
+          </Text>
 
-          {trips.length === 0 && (
-            <View style={styles.card}>
-              <Text style={styles.emptyTitle}>No saved trips</Text>
-              <Text style={styles.emptyText}>
-                Your saved trip sheets will appear here.
+          {trips.length === 0 ? (
+
+            <View
+              style={styles.emptyCard}
+            >
+
+              <Text
+                style={
+                  styles.emptyTitle
+                }
+              >
+                No saved trips
               </Text>
+
+              <Text
+                style={
+                  styles.emptyText
+                }
+              >
+                Your saved trip
+                sheets will appear here.
+              </Text>
+
             </View>
-          )}
 
-          {trips.map(item => {
-            const miles = getTotalMiles(item);
-            const mpg = getMPG(item);
+          ) : (
 
-            return (
-              <View style={styles.card} key={item.id}>
-                <Text style={styles.cardTitle}>{item.driver}</Text>
+            trips.map(
+              (savedTrip) => (
 
-                <Text style={styles.info}>
-                  Truck / Trailer: {item.truck}
-                </Text>
-
-                <Text style={styles.info}>
-                  Total Miles: {miles.toFixed(0)}
-                </Text>
-
-                <Text style={styles.info}>
-                  Gallons: {parseFloat(item.gallons || 0).toFixed(2)}
-                </Text>
-
-                <Text style={styles.info}>
-                  Fuel: ${parseFloat(item.fuelCost || 0).toFixed(2)}
-                </Text>
-
-                <Text style={styles.info}>
-                  MPG: {mpg.toFixed(2)}
-                </Text>
-
-                <Text style={styles.date}>
-                  {new Date(item.createdAt).toLocaleDateString()}
-                </Text>
-
-                <TouchableOpacity
-                  style={styles.editButton}
-                  onPress={() => openTrip(item)}
+                <View
+                  key={savedTrip.id}
+                  style={
+                    styles.tripCard
+                  }
                 >
-                  <Text style={styles.editButtonText}>Open / Edit</Text>
-                </TouchableOpacity>
 
-                <View style={styles.pdfRow}>
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => sharePDF(item)}
+                  <Text
+                    style={
+                      styles.tripDriver
+                    }
                   >
-                    <Text style={styles.secondaryButtonText}>
-                      Share PDF
+                    {
+                      savedTrip.driver
+                    }
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.tripInfo
+                    }
+                  >
+                    Truck / Trailer:{' '}
+                    {savedTrip.truck ||
+                      '—'}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.tripInfo
+                    }
+                  >
+                    Total Miles:{' '}
+                    {calculateMiles(
+                      savedTrip
+                    )}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.tripInfo
+                    }
+                  >
+                    Gallons:{' '}
+                    {calculateGallons(
+                      savedTrip
+                    ).toFixed(2)}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.tripInfo
+                    }
+                  >
+                    Fuel: $
+                    {calculateFuelCost(
+                      savedTrip
+                    ).toFixed(2)}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.tripInfo
+                    }
+                  >
+                    MPG:{' '}
+                    {calculateMPG(
+                      savedTrip
+                    ).toFixed(2)}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.tripDate
+                    }
+                  >
+                    {new Date(
+                      savedTrip.createdAt
+                    ).toLocaleDateString()}
+                  </Text>
+
+                  <TouchableOpacity
+                    style={
+                      styles.viewButton
+                    }
+                    onPress={() =>
+                      openTripSheet(
+                        savedTrip
+                      )
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.viewButtonText
+                      }
+                    >
+                      View Trip Sheet
                     </Text>
+
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => printTrip(item)}
+                  <View
+                    style={
+                      styles.pdfRow
+                    }
                   >
-                    <Text style={styles.secondaryButtonText}>
-                      Print
-                    </Text>
-                  </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={
+                        styles.pdfButton
+                      }
+                      onPress={() =>
+                        sharePDF(
+                          savedTrip
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.pdfButtonText
+                        }
+                      >
+                        PDF
+                      </Text>
+
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={
+                        styles.pdfButton
+                      }
+                      onPress={() =>
+                        printTrip(
+                          savedTrip
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.pdfButtonText
+                        }
+                      >
+                        Print
+                      </Text>
+
+                    </TouchableOpacity>
+
+                  </View>
+
+                  <View
+                    style={
+                      styles.tripActions
+                    }
+                  >
+
+                    <TouchableOpacity
+                      style={
+                        styles.editButton
+                      }
+                      onPress={() =>
+                        editTrip(
+                          savedTrip
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.editButtonText
+                        }
+                      >
+                        Open / Edit
+                      </Text>
+
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={
+                        styles.deleteButton
+                      }
+                      onPress={() =>
+                        deleteTrip(
+                          savedTrip.id
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.deleteButtonText
+                        }
+                      >
+                        Delete
+                      </Text>
+
+                    </TouchableOpacity>
+
+                  </View>
+
                 </View>
 
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => deleteTrip(item.id)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })}
+              )
+            )
+
+          )}
+
         </ScrollView>
+
+      </SafeAreaView>
+    );
+  }
+
+  if (
+    screen === 'sheet' &&
+    viewTrip
+  ) {
+    return (
+      <SafeAreaView
+        style={styles.container}
+      >
+
+        <ScrollView
+          contentContainerStyle={
+            styles.content
+          }
+        >
+
+          <TouchableOpacity
+            onPress={() =>
+              setScreen('home')
+            }
+          >
+
+            <Text
+              style={styles.backText}
+            >
+              ‹ Back to Trips
+            </Text>
+
+          </TouchableOpacity>
+
+          <View
+            style={styles.sheetCard}
+          >
+
+            <Text
+              style={
+                styles.sheetCompany
+              }
+            >
+              MARKKO'S Transportation
+            </Text>
+
+            <Text
+              style={
+                styles.sheetAddress
+              }
+            >
+              8224 Guava Avenue
+            </Text>
+
+            <Text
+              style={
+                styles.sheetAddress
+              }
+            >
+              Buena Park, CA 90620
+            </Text>
+
+            <Text
+              style={
+                styles.sheetTitle
+              }
+            >
+              MILEAGE TRIP SHEET
+            </Text>
+
+            <View
+              style={styles.infoRow}
+            >
+
+              <View
+                style={
+                  styles.infoBlock
+                }
+              >
+
+                <Text
+                  style={
+                    styles.sheetLabel
+                  }
+                >
+                  DRIVER
+                </Text>
+
+                <Text
+                  style={
+                    styles.sheetValue
+                  }
+                >
+                  {viewTrip.driver ||
+                    '—'}
+                </Text>
+
+              </View>
+
+              <View
+                style={
+                  styles.infoBlock
+                }
+              >
+
+                <Text
+                  style={
+                    styles.sheetLabel
+                  }
+                >
+                  TRUCK / TRAILER #
+                </Text>
+
+                <Text
+                  style={
+                    styles.sheetValue
+                  }
+                >
+                  {viewTrip.truck ||
+                    '—'}
+                </Text>
+
+              </View>
+
+            </View>
+
+            <Text
+              style={
+                styles.sheetSectionTitle
+              }
+            >
+              MILEAGE
+            </Text>
+
+            <View
+              style={styles.table}
+            >
+
+              <View
+                style={
+                  styles.tableHeader
+                }
+              >
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellDate,
+                  ]}
+                >
+                  DATE
+                </Text>
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellState,
+                  ]}
+                >
+                  STATE
+                </Text>
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellHighway,
+                  ]}
+                >
+                  HWY
+                </Text>
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellOdo,
+                  ]}
+                >
+                  ODOMETER
+                </Text>
+
+              </View>
+
+              {viewTrip.mileageEntries.map(
+                (entry) => (
+
+                  <View
+                    style={
+                      styles.tableRow
+                    }
+                    key={entry.id}
+                  >
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellDate,
+                      ]}
+                    >
+                      {entry.date ||
+                        '—'}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellState,
+                      ]}
+                    >
+                      {entry.state ||
+                        '—'}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellHighway,
+                      ]}
+                    >
+                      {entry.highway ||
+                        '—'}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellOdo,
+                      ]}
+                    >
+                      {entry.odometer ||
+                        '—'}
+                    </Text>
+
+                  </View>
+
+                )
+              )}
+
+            </View>
+
+            <Text
+              style={
+                styles.sheetTotal
+              }
+            >
+              Total Miles:{' '}
+              {calculateMiles(
+                viewTrip
+              )}
+            </Text>
+
+            <Text
+              style={
+                styles.sheetSectionTitle
+              }
+            >
+              CITIES / ROUTES
+            </Text>
+
+            {viewTrip.routes.map(
+              (route) => (
+
+                <View
+                  style={
+                    styles.routeLine
+                  }
+                  key={route.id}
+                >
+
+                  <Text
+                    style={
+                      styles.routeText
+                    }
+                  >
+                    FROM:{' '}
+                    {route.from ||
+                      '—'}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.routeText
+                    }
+                  >
+                    TO:{' '}
+                    {route.to ||
+                      '—'}
+                  </Text>
+
+                </View>
+
+              )
+            )}
+
+            <Text
+              style={
+                styles.sheetSectionTitle
+              }
+            >
+              FUEL PURCHASE
+            </Text>
+
+            <View
+              style={styles.table}
+            >
+
+              <View
+                style={
+                  styles.tableHeader
+                }
+              >
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellDate,
+                  ]}
+                >
+                  DATE
+                </Text>
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellVendor,
+                  ]}
+                >
+                  VENDOR
+                </Text>
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellGallons,
+                  ]}
+                >
+                  GAL
+                </Text>
+
+                <Text
+                  style={[
+                    styles.cellHeader,
+                    styles.cellCost,
+                  ]}
+                >
+                  COST
+                </Text>
+
+              </View>
+
+              {viewTrip.fuelEntries.map(
+                (fuel) => (
+
+                  <View
+                    style={
+                      styles.tableRow
+                    }
+                    key={fuel.id}
+                  >
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellDate,
+                      ]}
+                    >
+                      {fuel.date ||
+                        '—'}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellVendor,
+                      ]}
+                    >
+                      {fuel.vendor ||
+                        '—'}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellGallons,
+                      ]}
+                    >
+                      {fuel.gallons ||
+                        '—'}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.cell,
+                        styles.cellCost,
+                      ]}
+                    >
+                      {fuel.cost
+                        ? `$${Number(
+                            fuel.cost
+                          ).toFixed(2)}`
+                        : '—'}
+                    </Text>
+
+                  </View>
+
+                )
+              )}
+
+            </View>
+
+            <View
+              style={
+                styles.summaryBox
+              }
+            >
+
+              <Text
+                style={
+                  styles.summaryText
+                }
+              >
+                Total Miles:{' '}
+                {calculateMiles(
+                  viewTrip
+                )}
+              </Text>
+
+              <Text
+                style={
+                  styles.summaryText
+                }
+              >
+                Total Gallons:{' '}
+                {calculateGallons(
+                  viewTrip
+                ).toFixed(2)}
+              </Text>
+
+              <Text
+                style={
+                  styles.summaryText
+                }
+              >
+                Fuel Cost: $
+                {calculateFuelCost(
+                  viewTrip
+                ).toFixed(2)}
+              </Text>
+
+              <Text
+                style={
+                  styles.summaryText
+                }
+              >
+                MPG:{' '}
+                {calculateMPG(
+                  viewTrip
+                ).toFixed(2)}
+              </Text>
+
+            </View>
+
+          </View>
+
+          <TouchableOpacity
+            style={
+              styles.primaryButton
+            }
+            onPress={() =>
+              sharePDF(
+                viewTrip
+              )
+            }
+          >
+
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
+              Generate / Share PDF
+            </Text>
+
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={
+              styles.outlineButton
+            }
+            onPress={() =>
+              printTrip(
+                viewTrip
+              )
+            }
+          >
+
+            <Text
+              style={
+                styles.outlineButtonText
+              }
+            >
+              Print Trip Sheet
+            </Text>
+
+          </TouchableOpacity>
+
+        </ScrollView>
+
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Mileage Trip Sheet</Text>
-        <Text style={styles.subtitle}>Digital Trip Record</Text>
+    <SafeAreaView
+      style={styles.container}
+    >
+
+      <ScrollView
+        contentContainerStyle={
+          styles.content
+        }
+      >
+
+        <TouchableOpacity
+          onPress={() =>
+            setScreen('home')
+          }
+        >
+
+          <Text
+            style={styles.backText}
+          >
+            ‹ Back to Trips
+          </Text>
+
+        </TouchableOpacity>
+
+        <Text
+          style={styles.title}
+        >
+          Mileage Trip Sheet
+        </Text>
+
+        <Text
+          style={styles.subtitle}
+        >
+          {editingId
+            ? 'Edit Trip'
+            : 'New Trip'}
+        </Text>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Trip Information</Text>
 
-          <Text style={styles.label}>Driver</Text>
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Trip Information
+          </Text>
+
+          <Text
+            style={styles.label}
+          >
+            Driver
+          </Text>
+
           <TextInput
             style={styles.input}
-            value={trip.driver}
-            onChangeText={value =>
-              setTrip({ ...trip, driver: value })
-            }
             placeholder="Driver name"
+            value={trip.driver}
+            onChangeText={(value) =>
+              updateBasic(
+                'driver',
+                value
+              )
+            }
           />
 
-          <Text style={styles.label}>Truck / Trailer #</Text>
+          <Text
+            style={styles.label}
+          >
+            Truck / Trailer #
+          </Text>
+
           <TextInput
             style={styles.input}
+            placeholder="Example: 519"
             value={trip.truck}
-            onChangeText={value =>
-              setTrip({ ...trip, truck: value })
+            onChangeText={(value) =>
+              updateBasic(
+                'truck',
+                value
+              )
             }
-            placeholder="Truck / Trailer"
           />
+
         </View>
-
-        <Text style={styles.sectionTitle}>Mileage Entries</Text>
-
-        {trip.entries.map((entry, index) => (
-          <View style={styles.card} key={entry.id}>
-            <Text style={styles.entryTitle}>
-              Mileage Entry {index + 1}
-            </Text>
-
-            <Text style={styles.label}>State</Text>
-            <TextInput
-              style={styles.input}
-              value={entry.state}
-              onChangeText={value =>
-                updateEntry(index, 'state', value)
-              }
-              placeholder="CALIFORNIA"
-              autoCapitalize="characters"
-            />
-
-            <Text style={styles.label}>Highway Used</Text>
-            <TextInput
-              style={styles.input}
-              value={entry.highway}
-              onChangeText={value =>
-                updateEntry(index, 'highway', value)
-              }
-              placeholder="5"
-            />
-
-            <Text style={styles.label}>Odometer Reading</Text>
-            <TextInput
-              style={styles.input}
-              value={entry.odometer}
-              onChangeText={value =>
-                updateEntry(index, 'odometer', value)
-              }
-              placeholder="1000"
-              keyboardType="numeric"
-            />
-
-            {trip.entries.length > 1 && (
-              <TouchableOpacity
-                style={styles.removeButton}
-                onPress={() => removeEntry(index)}
-              >
-                <Text style={styles.deleteButtonText}>
-                  Remove Entry
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ))}
-
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={addEntry}
-        >
-          <Text style={styles.addButtonText}>
-            + Add Mileage Entry
-          </Text>
-        </TouchableOpacity>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Fuel Information</Text>
 
-          <Text style={styles.label}>Gallons</Text>
-          <TextInput
-            style={styles.input}
-            value={trip.gallons}
-            onChangeText={value =>
-              setTrip({ ...trip, gallons: value })
+          <Text
+            style={
+              styles.sectionTitle
             }
-            placeholder="180"
-            keyboardType="decimal-pad"
-          />
+          >
+            Mileage Entries
+          </Text>
 
-          <Text style={styles.label}>Fuel Cost ($)</Text>
-          <TextInput
-            style={styles.input}
-            value={trip.fuelCost}
-            onChangeText={value =>
-              setTrip({ ...trip, fuelCost: value })
+          {trip.mileageEntries.map(
+            (entry, index) => (
+
+              <View
+                key={entry.id}
+                style={
+                  styles.entryBox
+                }
+              >
+
+                <View
+                  style={
+                    styles.entryHeader
+                  }
+                >
+
+                  <Text
+                    style={
+                      styles.entryTitle
+                    }
+                  >
+                    Reading{' '}
+                    {index + 1}
+                  </Text>
+
+                  {trip
+                    .mileageEntries
+                    .length > 1 && (
+
+                    <TouchableOpacity
+                      onPress={() =>
+                        removeMileage(
+                          index
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.removeText
+                        }
+                      >
+                        Remove
+                      </Text>
+
+                    </TouchableOpacity>
+
+                  )}
+
+                </View>
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Date
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="08/24/2026"
+                  value={entry.date}
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateMileage(
+                      index,
+                      'date',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  State
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="CA"
+                  value={
+                    entry.state
+                  }
+                  autoCapitalize="characters"
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateMileage(
+                      index,
+                      'state',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Highway Used
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="I-5"
+                  value={
+                    entry.highway
+                  }
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateMileage(
+                      index,
+                      'highway',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Odometer Reading
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="507198"
+                  value={
+                    entry.odometer
+                  }
+                  keyboardType="number-pad"
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateMileage(
+                      index,
+                      'odometer',
+                      value
+                    )
+                  }
+                />
+
+                {index > 0 &&
+                  Number(
+                    entry.odometer
+                  ) > 0 &&
+                  Number(
+                    trip
+                      .mileageEntries[
+                      index - 1
+                    ]
+                      .odometer
+                  ) > 0 && (
+
+                    <Text
+                      style={
+                        styles.segmentMiles
+                      }
+                    >
+                      Miles since
+                      last reading:{' '}
+                      {Math.abs(
+                        Number(
+                          entry.odometer
+                        ) -
+                          Number(
+                            trip
+                              .mileageEntries[
+                              index -
+                                1
+                            ]
+                              .odometer
+                          )
+                      )}
+                    </Text>
+
+                  )}
+
+              </View>
+
+            )
+          )}
+
+          <TouchableOpacity
+            style={
+              styles.addButton
             }
-            placeholder="1190"
-            keyboardType="decimal-pad"
-          />
+            onPress={
+              addMileage
+            }
+          >
 
-          <View style={styles.summary}>
-            <Text style={styles.summaryText}>
-              Total Miles: {getTotalMiles(trip).toFixed(0)}
+            <Text
+              style={
+                styles.addButtonText
+              }
+            >
+              + Add Mileage Reading
             </Text>
 
-            <Text style={styles.summaryText}>
-              MPG: {getMPG(trip).toFixed(2)}
+          </TouchableOpacity>
+
+          <Text
+            style={
+              styles.totalText
+            }
+          >
+            Total Miles:{' '}
+            {calculateMiles()}
+          </Text>
+
+        </View>
+
+        <View style={styles.card}>
+
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Cities / Routes
+          </Text>
+
+          {trip.routes.map(
+            (route, index) => (
+
+              <View
+                key={route.id}
+                style={
+                  styles.entryBox
+                }
+              >
+
+                <View
+                  style={
+                    styles.entryHeader
+                  }
+                >
+
+                  <Text
+                    style={
+                      styles.entryTitle
+                    }
+                  >
+                    Route{' '}
+                    {index + 1}
+                  </Text>
+
+                  {trip.routes
+                    .length > 1 && (
+
+                    <TouchableOpacity
+                      onPress={() =>
+                        removeRoute(
+                          index
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.removeText
+                        }
+                      >
+                        Remove
+                      </Text>
+
+                    </TouchableOpacity>
+
+                  )}
+
+                </View>
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  From
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="Los Angeles"
+                  value={
+                    route.from
+                  }
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateRoute(
+                      index,
+                      'from',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  To
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="Portland"
+                  value={
+                    route.to
+                  }
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateRoute(
+                      index,
+                      'to',
+                      value
+                    )
+                  }
+                />
+
+              </View>
+
+            )
+          )}
+
+          <TouchableOpacity
+            style={
+              styles.addButton
+            }
+            onPress={
+              addRoute
+            }
+          >
+
+            <Text
+              style={
+                styles.addButtonText
+              }
+            >
+              + Add Route
             </Text>
-          </View>
+
+          </TouchableOpacity>
+
+        </View>
+
+        <View style={styles.card}>
+
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Fuel Purchases
+          </Text>
+
+          {trip.fuelEntries.map(
+            (fuel, index) => (
+
+              <View
+                key={fuel.id}
+                style={
+                  styles.entryBox
+                }
+              >
+
+                <View
+                  style={
+                    styles.entryHeader
+                  }
+                >
+
+                  <Text
+                    style={
+                      styles.entryTitle
+                    }
+                  >
+                    Fuel Stop{' '}
+                    {index + 1}
+                  </Text>
+
+                  {trip
+                    .fuelEntries
+                    .length > 1 && (
+
+                    <TouchableOpacity
+                      onPress={() =>
+                        removeFuel(
+                          index
+                        )
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.removeText
+                        }
+                      >
+                        Remove
+                      </Text>
+
+                    </TouchableOpacity>
+
+                  )}
+
+                </View>
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Date
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="08/24/2026"
+                  value={
+                    fuel.date
+                  }
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateFuel(
+                      index,
+                      'date',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Vendor
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="Pilot, Loves, Shell..."
+                  value={
+                    fuel.vendor
+                  }
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateFuel(
+                      index,
+                      'vendor',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Gallons
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="80.5"
+                  value={
+                    fuel.gallons
+                  }
+                  keyboardType="decimal-pad"
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateFuel(
+                      index,
+                      'gallons',
+                      value
+                    )
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.label
+                  }
+                >
+                  Cost
+                </Text>
+
+                <TextInput
+                  style={
+                    styles.input
+                  }
+                  placeholder="350.00"
+                  value={
+                    fuel.cost
+                  }
+                  keyboardType="decimal-pad"
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateFuel(
+                      index,
+                      'cost',
+                      value
+                    )
+                  }
+                />
+
+              </View>
+
+            )
+          )}
+
+          <TouchableOpacity
+            style={
+              styles.addButton
+            }
+            onPress={
+              addFuel
+            }
+          >
+
+            <Text
+              style={
+                styles.addButtonText
+              }
+            >
+              + Add Fuel Purchase
+            </Text>
+
+          </TouchableOpacity>
+
+          <Text
+            style={
+              styles.totalText
+            }
+          >
+            Total Gallons:{' '}
+            {calculateGallons().toFixed(
+              2
+            )}
+          </Text>
+
+          <Text
+            style={
+              styles.totalText
+            }
+          >
+            Total Fuel Cost: $
+            {calculateFuelCost().toFixed(
+              2
+            )}
+          </Text>
+
+          <Text
+            style={
+              styles.totalText
+            }
+          >
+            MPG:{' '}
+            {calculateMPG().toFixed(
+              2
+            )}
+          </Text>
+
         </View>
 
         <TouchableOpacity
-          style={styles.mainButton}
-          onPress={saveTrip}
+          style={
+            styles.primaryButton
+          }
+          onPress={
+            saveTrip
+          }
         >
-          <Text style={styles.mainButtonText}>Save Trip</Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.secondaryButtonFull}
-          onPress={() => sharePDF(trip)}
-        >
-          <Text style={styles.secondaryButtonText}>
-            Generate / Share PDF
+          <Text
+            style={
+              styles.primaryButtonText
+            }
+          >
+            {editingId
+              ? 'Update Trip'
+              : 'Save Trip'}
           </Text>
+
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.secondaryButtonFull}
-          onPress={() => printTrip(trip)}
-        >
-          <Text style={styles.secondaryButtonText}>
-            Print Trip Sheet
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => setScreen('history')}
-        >
-          <Text style={styles.backText}>Back to Trip History</Text>
-        </TouchableOpacity>
       </ScrollView>
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
+  container: {
     flex: 1,
-    backgroundColor: '#f1f5f6',
+    backgroundColor: '#f2f5f6',
   },
 
-  container: {
+  content: {
     padding: 18,
-    paddingBottom: 60,
+    paddingBottom: 80,
   },
 
   title: {
-    fontSize: 34,
+    fontSize: 30,
     fontWeight: '800',
     textAlign: 'center',
-    marginTop: 15,
+    marginTop: 14,
   },
 
   subtitle: {
-    fontSize: 18,
-    color: '#6b7280',
     textAlign: 'center',
-    marginBottom: 25,
+    fontSize: 16,
+    color: '#6b7280',
+    marginBottom: 24,
   },
 
-  sectionTitle: {
-    fontSize: 25,
+  backText: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 12,
+  },
+
+  historyTitle: {
+    fontSize: 22,
     fontWeight: '800',
-    marginTop: 12,
     marginBottom: 15,
   },
 
   card: {
     backgroundColor: 'white',
     borderRadius: 18,
-    padding: 18,
+    padding: 17,
     marginBottom: 18,
   },
 
-  cardTitle: {
-    fontSize: 23,
-    fontWeight: '800',
-    marginBottom: 8,
+  entryBox: {
+    backgroundColor: '#fafafa',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 14,
+    padding: 13,
+    marginBottom: 14,
+  },
+
+  entryHeader: {
+    flexDirection: 'row',
+    justifyContent:
+      'space-between',
   },
 
   entryTitle: {
-    fontSize: 20,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  sectionTitle: {
+    fontSize: 21,
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    marginBottom: 6,
     marginTop: 10,
+    marginBottom: 5,
   },
 
   input: {
+    backgroundColor: 'white',
     borderWidth: 1,
     borderColor: '#d1d5db',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 17,
-    backgroundColor: '#fafafa',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 16,
   },
 
-  mainButton: {
-    backgroundColor: '#0f172a',
-    padding: 18,
+  primaryButton: {
+    backgroundColor: '#111827',
     borderRadius: 14,
+    padding: 17,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+
+  outlineButton: {
+    borderWidth: 1,
+    borderColor: '#111827',
+    borderRadius: 14,
+    padding: 16,
     alignItems: 'center',
     marginBottom: 22,
   },
 
-  mainButtonText: {
-    color: 'white',
-    fontSize: 20,
+  outlineButtonText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#111827',
+  },
+
+  addButton: {
+    borderWidth: 1,
+    borderColor: '#111827',
+    borderRadius: 11,
+    padding: 13,
+    alignItems: 'center',
+  },
+
+  addButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  removeText: {
+    color: '#dc2626',
+    fontWeight: '700',
+  },
+
+  totalText: {
+    marginTop: 15,
+    fontSize: 17,
     fontWeight: '800',
   },
 
-  editButton: {
-    backgroundColor: '#0f172a',
-    padding: 14,
-    borderRadius: 12,
+  segmentMiles: {
+    marginTop: 10,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#374151',
+  },
+
+  emptyCard: {
+    backgroundColor: 'white',
+    borderRadius: 18,
+    padding: 25,
+    alignItems: 'center',
+  },
+
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+
+  emptyText: {
+    marginTop: 5,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+
+  tripCard: {
+    backgroundColor: 'white',
+    borderRadius: 18,
+    padding: 17,
+    marginBottom: 14,
+  },
+
+  tripDriver: {
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+
+  tripInfo: {
+    fontSize: 15,
+    marginBottom: 3,
+  },
+
+  tripDate: {
+    color: '#6b7280',
+    marginTop: 7,
+  },
+
+  tripActions: {
+    flexDirection: 'row',
+    marginTop: 10,
+    gap: 10,
+  },
+
+  viewButton: {
+    backgroundColor: '#374151',
+    padding: 12,
+    borderRadius: 10,
     alignItems: 'center',
     marginTop: 14,
   },
 
-  editButtonText: {
+  viewButtonText: {
     color: 'white',
-    fontSize: 17,
     fontWeight: '700',
-  },
-
-  addButton: {
-    borderWidth: 2,
-    borderColor: '#0f172a',
-    padding: 15,
-    borderRadius: 13,
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-
-  addButtonText: {
-    color: '#0f172a',
-    fontWeight: '800',
-    fontSize: 17,
-  },
-
-  secondaryButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#0f172a',
-    padding: 13,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-
-  secondaryButtonFull: {
-    borderWidth: 1,
-    borderColor: '#0f172a',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-
-  secondaryButtonText: {
-    color: '#0f172a',
-    fontWeight: '800',
-    fontSize: 16,
   },
 
   pdfRow: {
@@ -728,22 +2655,38 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
-  deleteButton: {
+  pdfButton: {
+    flex: 1,
     borderWidth: 1,
-    borderColor: '#dc2626',
+    borderColor: '#111827',
+    borderRadius: 10,
+    padding: 11,
+    alignItems: 'center',
+  },
+
+  pdfButtonText: {
+    color: '#111827',
+    fontWeight: '800',
+  },
+
+  editButton: {
+    flex: 1,
+    backgroundColor: '#111827',
     padding: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 10,
   },
 
-  removeButton: {
+  editButtonText: {
+    color: 'white',
+    fontWeight: '700',
+  },
+
+  deleteButton: {
+    padding: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#dc2626',
-    padding: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 14,
   },
 
   deleteButtonText: {
@@ -751,51 +2694,153 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  info: {
-    fontSize: 17,
-    marginBottom: 3,
+  sheetCard: {
+    backgroundColor: '#ffffff',
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    marginBottom: 16,
   },
 
-  date: {
-    color: '#6b7280',
-    fontSize: 16,
-    marginTop: 10,
-  },
-
-  summary: {
-    backgroundColor: '#f1f5f9',
-    padding: 15,
-    borderRadius: 12,
-    marginTop: 18,
-  },
-
-  summaryText: {
+  sheetCompany: {
     fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontWeight: '900',
   },
 
-  backButton: {
-    padding: 15,
-    alignItems: 'center',
+  sheetAddress: {
+    fontSize: 12,
+    color: '#374151',
   },
 
-  backText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#475569',
-  },
-
-  emptyTitle: {
+  sheetTitle: {
+    fontSize: 23,
+    fontWeight: '900',
     textAlign: 'center',
-    fontSize: 20,
+    marginTop: 12,
+    marginBottom: 20,
+  },
+
+  infoRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+
+  infoBlock: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#111827',
+    paddingBottom: 5,
+  },
+
+  sheetLabel: {
+    fontSize: 11,
     fontWeight: '800',
   },
 
-  emptyText: {
-    textAlign: 'center',
-    color: '#6b7280',
-    marginTop: 8,
-    fontSize: 16,
+  sheetValue: {
+    fontSize: 15,
+    marginTop: 4,
+  },
+
+  sheetSectionTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 18,
+    marginBottom: 8,
+  },
+
+  table: {
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#e5e7eb',
+  },
+
+  tableRow: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#111827',
+  },
+
+  cellHeader: {
+    fontSize: 10,
+    fontWeight: '900',
+    padding: 6,
+    borderRightWidth: 1,
+    borderRightColor: '#111827',
+  },
+
+  cell: {
+    fontSize: 10,
+    padding: 6,
+    borderRightWidth: 1,
+    borderRightColor: '#111827',
+  },
+
+  cellDate: {
+    flex: 1.2,
+  },
+
+  cellState: {
+    flex: 0.7,
+  },
+
+  cellHighway: {
+    flex: 1,
+  },
+
+  cellOdo: {
+    flex: 1.3,
+    borderRightWidth: 0,
+  },
+
+  cellVendor: {
+    flex: 1.4,
+  },
+
+  cellGallons: {
+    flex: 0.8,
+  },
+
+  cellCost: {
+    flex: 1,
+    borderRightWidth: 0,
+  },
+
+  sheetTotal: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 10,
+  },
+
+  routeLine: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#9ca3af',
+    paddingVertical: 8,
+    gap: 10,
+  },
+
+  routeText: {
+    flex: 1,
+    fontSize: 12,
+  },
+
+  summaryBox: {
+    marginTop: 20,
+    borderTopWidth: 2,
+    borderTopColor: '#111827',
+    paddingTop: 12,
+  },
+
+  summaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 5,
   },
 });
