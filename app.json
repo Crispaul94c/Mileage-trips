@@ -2,6 +2,7 @@
   "expo": {
     "name": "Mileage Trips",
     "slug": "mileage-trips",
+    "owner": "crispaulcs-team",
     "version": "1.1.0",
     "description": "Create, save, search, print, and share professional mileage trip sheets.",
     "orientation": "portrait",
@@ -45,6 +46,11 @@
         "android.permission.RECORD_AUDIO"
       ],
       "softwareKeyboardLayoutMode": "resize"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "89b57fe8-6c0e-40e0-b26d-12408267d103"
+      }
     }
   }
 }
