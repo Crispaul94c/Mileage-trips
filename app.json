@@ -3,22 +3,48 @@
     "name": "Mileage Trips",
     "slug": "mileage-trips",
     "version": "1.1.0",
+    "description": "Create, save, search, print, and share professional mileage trip sheets.",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "mileagetrips",
+    "backgroundColor": "#f2f5f6",
+    "primaryColor": "#0f766e",
     "userInterfaceStyle": "light",
     "plugins": [
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Mileage Trips to attach receipt and company logo photos."
+          "photosPermission": "Allow Mileage Trips to attach receipt and company logo photos.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f2f5f6",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain"
         }
       ]
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.markkos.mileagetrips"
+      "bundleIdentifier": "com.markkos.mileagetrips",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
-      "package": "com.markkos.mileagetrips"
+      "package": "com.markkos.mileagetrips",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111827"
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     }
   }
 }

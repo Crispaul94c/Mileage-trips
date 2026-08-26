@@ -102,9 +102,14 @@ export default function App() {
       Alert.alert('Missing Company', 'Please enter the company name.');
       return;
     }
-    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-    Alert.alert('Profile Saved', 'The PDF letterhead has been updated.');
-    setScreen('home');
+
+    try {
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+      Alert.alert('Profile Saved', 'The PDF letterhead has been updated.');
+      setScreen('home');
+    } catch (error) {
+      Alert.alert('Save Error', 'Could not save the company profile.');
+    }
   };
 
   const pickImage = async (onSelected) => {
@@ -1393,12 +1398,19 @@ ${calculateMPG(
             style={styles.sheetCard}
           >
 
+            {profile.logoUri ? (
+              <Image
+                source={{ uri: profile.logoUri }}
+                style={styles.sheetLogo}
+              />
+            ) : null}
+
             <Text
               style={
                 styles.sheetCompany
               }
             >
-              MARKKO'S Transportation
+              {profile.companyName}
             </Text>
 
             <Text
@@ -1406,7 +1418,7 @@ ${calculateMPG(
                 styles.sheetAddress
               }
             >
-              8224 Guava Avenue
+              {profile.address}
             </Text>
 
             <Text
@@ -1414,8 +1426,16 @@ ${calculateMPG(
                 styles.sheetAddress
               }
             >
-              Buena Park, CA 90620
+              {profile.cityStateZip}
             </Text>
+
+            {(profile.phone || profile.fax) ? (
+              <Text style={styles.sheetAddress}>
+                {[profile.phone, profile.fax ? `Fax ${profile.fax}` : '']
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            ) : null}
 
             <Text
               style={
@@ -2949,6 +2969,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#d1d5db',
     marginBottom: 16,
+  },
+
+  sheetLogo: {
+    width: '100%',
+    height: 72,
+    resizeMode: 'contain',
+    marginBottom: 8,
   },
 
   sheetCompany: {
