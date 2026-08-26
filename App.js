@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,8 +14,20 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as ImagePicker from 'expo-image-picker';
 
 const STORAGE_KEY = 'mileage_trip_history_v3';
+const PROFILE_KEY = 'mileage_company_profile_v1';
+
+const DEFAULT_PROFILE = {
+  companyName: "MARKKO'S Transportation",
+  address: '8224 Guava Avenue',
+  cityStateZip: 'Buena Park, CA 90620',
+  phone: '(714) 404-5148',
+  fax: '(657) 214-2149',
+  logoUri: '',
+  logoData: '',
+};
 
 const today = () => {
   const d = new Date();
@@ -67,10 +80,51 @@ export default function App() {
   const [trip, setTrip] = useState(emptyTrip());
   const [editingId, setEditingId] = useState(null);
   const [viewTrip, setViewTrip] = useState(null);
+  const [profile, setProfile] = useState(DEFAULT_PROFILE);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadTrips();
+    loadProfile();
   }, []);
+
+  const loadProfile = async () => {
+    try {
+      const saved = await AsyncStorage.getItem(PROFILE_KEY);
+      if (saved) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(saved) });
+    } catch (error) {
+      Alert.alert('Error', 'Could not load the company profile.');
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!profile.companyName.trim()) {
+      Alert.alert('Missing Company', 'Please enter the company name.');
+      return;
+    }
+    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    Alert.alert('Profile Saved', 'The PDF letterhead has been updated.');
+    setScreen('home');
+  };
+
+  const pickImage = async (onSelected) => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission Needed', 'Allow photo access to select an image.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.65,
+      base64: true,
+    });
+    if (!result.canceled && result.assets?.[0]) onSelected(result.assets[0]);
+  };
+
+  const pickReceipt = (index) => {
+    pickImage((asset) => updateFuel(index, 'receiptUri', asset.uri));
+  };
 
   const loadTrips = async () => {
     try {
@@ -681,22 +735,24 @@ th {
 
   <div class="company">
 
+    ${profile.logoData ? `<img src="${profile.logoData}" style="max-width:120px;max-height:58px;margin-bottom:6px;object-fit:contain" />` : ''}
+
     <div class="company-name">
-      MARKKO'S Transportation
+      ${escapeHtml(profile.companyName)}
     </div>
 
     <div>
-      8224 Guava Avenue
+      ${escapeHtml(profile.address)}
     </div>
 
     <div>
-      Buena Park, CA 90620
+      ${escapeHtml(profile.cityStateZip)}
     </div>
 
     <div>
-      (714) 404-5148
+      ${escapeHtml(profile.phone)}
       &nbsp;
-      Fax (657) 214-2149
+      ${profile.fax ? `Fax ${escapeHtml(profile.fax)}` : ''}
     </div>
 
   </div>
@@ -919,6 +975,18 @@ ${calculateMPG(
   };
 
   if (screen === 'home') {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    const visibleTrips = trips.filter((item) => {
+      if (!normalizedSearch) return true;
+      return [
+        item.driver,
+        item.truck,
+        ...(item.routes || []).flatMap((route) => [route.from, route.to]),
+      ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+    });
+    const reportMiles = trips.reduce((sum, item) => sum + calculateMiles(item), 0);
+    const reportFuel = trips.reduce((sum, item) => sum + calculateFuelCost(item), 0);
+
     return (
       <SafeAreaView
         style={styles.container}
@@ -939,8 +1007,29 @@ ${calculateMPG(
           <Text
             style={styles.subtitle}
           >
-            Digital Trip Sheets
+            {profile.companyName} · Digital Trip Sheets
           </Text>
+
+          <View style={styles.topActions}>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => setScreen('profile')}>
+              <Text style={styles.secondaryButtonText}>Company Profile</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.reportRow}>
+            <View style={styles.reportCard}>
+              <Text style={styles.reportValue}>{trips.length}</Text>
+              <Text style={styles.reportLabel}>Trips</Text>
+            </View>
+            <View style={styles.reportCard}>
+              <Text style={styles.reportValue}>{reportMiles.toLocaleString()}</Text>
+              <Text style={styles.reportLabel}>Miles</Text>
+            </View>
+            <View style={styles.reportCard}>
+              <Text style={styles.reportValue}>${reportFuel.toFixed(0)}</Text>
+              <Text style={styles.reportLabel}>Fuel</Text>
+            </View>
+          </View>
 
           <TouchableOpacity
             style={
@@ -967,7 +1056,14 @@ ${calculateMPG(
             Trip History
           </Text>
 
-          {trips.length === 0 ? (
+          <TextInput
+            style={[styles.input, styles.searchInput]}
+            placeholder="Search driver, truck or route"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+
+          {visibleTrips.length === 0 ? (
 
             <View
               style={styles.emptyCard}
@@ -978,7 +1074,7 @@ ${calculateMPG(
                   styles.emptyTitle
                 }
               >
-                No saved trips
+                {trips.length === 0 ? 'No saved trips' : 'No matching trips'}
               </Text>
 
               <Text
@@ -994,7 +1090,7 @@ ${calculateMPG(
 
           ) : (
 
-            trips.map(
+            visibleTrips.map(
               (savedTrip) => (
 
                 <View
@@ -1208,6 +1304,58 @@ ${calculateMPG(
 
         </ScrollView>
 
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === 'profile') {
+    const profileFields = [
+      ['companyName', 'Company name', "MARKKO'S Transportation"],
+      ['address', 'Street address', '8224 Guava Avenue'],
+      ['cityStateZip', 'City, state and ZIP', 'Buena Park, CA 90620'],
+      ['phone', 'Phone', '(714) 404-5148'],
+      ['fax', 'Fax', '(657) 214-2149'],
+    ];
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <TouchableOpacity onPress={() => setScreen('home')}>
+            <Text style={styles.backText}>‹ Back to Trips</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Company Profile</Text>
+          <Text style={styles.subtitle}>These details appear on every PDF.</Text>
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Logo & Letterhead</Text>
+            {profile.logoUri ? <Image source={{ uri: profile.logoUri }} style={styles.logoPreview} /> : (
+              <View style={styles.logoPlaceholder}><Text style={styles.logoPlaceholderText}>Company Logo</Text></View>
+            )}
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => pickImage((asset) => setProfile({
+                ...profile,
+                logoUri: asset.uri,
+                logoData: asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : '',
+              }))}
+            >
+              <Text style={styles.addButtonText}>Choose Logo</Text>
+            </TouchableOpacity>
+            {profileFields.map(([field, label, placeholder]) => (
+              <View key={field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={placeholder}
+                  value={profile[field]}
+                  onChangeText={(value) => setProfile({ ...profile, [field]: value })}
+                />
+              </View>
+            ))}
+          </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={saveProfile}>
+            <Text style={styles.primaryButtonText}>Save Company Profile</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -2356,6 +2504,15 @@ ${calculateMPG(
                   }
                 />
 
+                <TouchableOpacity style={styles.receiptButton} onPress={() => pickReceipt(index)}>
+                  <Text style={styles.receiptButtonText}>
+                    {fuel.receiptUri ? 'Replace Receipt Photo' : '+ Add Receipt Photo'}
+                  </Text>
+                </TouchableOpacity>
+                {fuel.receiptUri ? (
+                  <Image source={{ uri: fuel.receiptUri }} style={styles.receiptPreview} />
+                ) : null}
+
               </View>
 
             )
@@ -2465,6 +2622,97 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6b7280',
     marginBottom: 24,
+  },
+
+  topActions: {
+    alignItems: 'flex-end',
+    marginBottom: 12,
+  },
+
+  secondaryButton: {
+    backgroundColor: '#e0f2fe',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+
+  secondaryButtonText: {
+    color: '#075985',
+    fontWeight: '800',
+  },
+
+  reportRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 18,
+  },
+
+  reportCard: {
+    flex: 1,
+    backgroundColor: '#0f766e',
+    borderRadius: 14,
+    padding: 13,
+  },
+
+  reportValue: {
+    color: 'white',
+    fontSize: 19,
+    fontWeight: '900',
+  },
+
+  reportLabel: {
+    color: '#ccfbf1',
+    fontSize: 12,
+    marginTop: 3,
+  },
+
+  searchInput: {
+    marginBottom: 16,
+    backgroundColor: 'white',
+  },
+
+  logoPreview: {
+    width: '100%',
+    height: 120,
+    resizeMode: 'contain',
+    marginBottom: 12,
+  },
+
+  logoPlaceholder: {
+    height: 110,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#94a3b8',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  logoPlaceholderText: {
+    color: '#64748b',
+    fontWeight: '700',
+  },
+
+  receiptButton: {
+    marginTop: 12,
+    backgroundColor: '#e0f2fe',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+  },
+
+  receiptButtonText: {
+    color: '#075985',
+    fontWeight: '800',
+  },
+
+  receiptPreview: {
+    width: '100%',
+    height: 150,
+    resizeMode: 'cover',
+    borderRadius: 10,
+    marginTop: 10,
   },
 
   backText: {
